@@ -1,7 +1,6 @@
 from __future__ import print_function
 from ctypes import c_uint32, c_float, c_char, BigEndianStructure
 import io
-import logging
 
 class SteeringBlock(BigEndianStructure):
     _fields_ = [('stamp',                c_uint32*4),
@@ -82,7 +81,6 @@ def iter_logical_records(f):
 
         if buf[:4] == '\x00'*4:
             # one word padding block
-            logging.debug('one-word padding')
             buf = buf[4:]
             continue
 
@@ -90,7 +88,6 @@ def iter_logical_records(f):
 
         while len(buf) < cw.size*4 + 10:
             # extend buffer with next physical record
-            logging.debug("EXTENDING")
             try:
                 chunk = next(zebra)
             except StopIteration:
@@ -117,17 +114,6 @@ def iter_logical_records(f):
 
         pilot = Pilot.from_buffer(buf[8:48])
 
-        #logging.debug('pilot.size_header = %#x', pilot.size_header)
-        #logging.debug('pilot.check = %#x', pilot.check)
-        #logging.debug('pilot.version = %#x', pilot.version)
-        #logging.debug('pilot.process = %#x', pilot.process)
-        #logging.debug('pilot.reserve = %#x', pilot.reserve)
-        #logging.debug('pilot.size_seg    = %#x', pilot.size_seg)
-        #logging.debug('pilot.size_rel    = %#x', pilot.size_rel)
-        #logging.debug('pilot.size_text   = %#x', pilot.size_text)
-        #logging.debug('pilot.size_bank   = %#x', pilot.size_text)
-        #logging.debug('control.size      = %#x', cw.size)
-
         size = (cw.size-10)*4
         record = buf[48:48+size]
         assert size == len(record)
@@ -142,27 +128,14 @@ def iter_logical_records(f):
 def iter_banks(record):
     bytes = io.BytesIO(record)
     while bytes.tell() < len(record):
-        #ioc = IOControl.from_buffer(record[:4])
-        ioc = IOControl.from_buffer_copy(bytes.read(4))#from_file(bytes)
-
-        #logging.debug('io.size = %#x', ioc.size)
-        #logging.debug('io.char = %#x', ioc.char)
+        ioc = IOControl.from_buffer_copy(bytes.read(4))
 
         bytes.seek((ioc.size-12)*4,1)
         bank = Bank.from_buffer_copy(bytes.read(36))
-        #bank = Bank.from_buffer(record[4+(ioc.size-12)*4:4+(ioc.size-12)*4+9*4])
 
-        logging.debug('bank.data = %#x', bank.data)
-        logging.debug('bank.name = %s', bank.name)
-        logging.debug('bank.id = %#x', bank.id)
-        logging.debug('bank.links = %#x', bank.links)
-        logging.debug('bank.status = %#x', bank.status)
-        logging.debug('bank.data = %#x', bank.data)
         data = bytes.read(bank.data*4)
-        #data = record[4+ioc.size*4-12:4+ioc.size*4-12+bank.data*4]
         assert len(data) == bank.data*4
         yield bank, data
-        #record = record[4+ioc.size*4-12+bank.data*4:]
 
 def parse(f):
     for lr in iter_logical_records(f):
@@ -177,9 +150,6 @@ if __name__ == '__main__':
     parser.add_argument('-v', '--verbose', help='increase verbosity', action='store_true')
     parser.add_argument('filename')
     args = parser.parse_args()
-
-    if args.verbose:
-        logging.basicConfig(level=logging.DEBUG)
 
     with io.open(args.filename,'rb') as f:
         for i, bank in enumerate(parse(f)):
