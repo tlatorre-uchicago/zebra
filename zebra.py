@@ -55,6 +55,7 @@ def zebraio(f):
         # size of steering block
         # see calculation on page 121 of ZEBRA guide
         size = (sb.size*(sb.fast_blocks + 1)-8)*4
+        print(size)
         physical_record = f.read(size)
         assert len(physical_record) == size
 
@@ -70,7 +71,12 @@ def iter_logical_records(f):
 
     buf = bytearray()
     while True:
-        if len(buf) < 2:
+        if len(buf) >= 4 and buf[:4] == b'\x00'*4:
+            # one word padding block
+            buf = buf[4:]
+            continue
+
+        if len(buf) < 8:
             # extend buffer with next physical record
             try:
                 chunk = next(zebra)
@@ -79,14 +85,9 @@ def iter_logical_records(f):
 
             buf.extend(chunk)
 
-        if buf[:4] == '\x00'*4:
-            # one word padding block
-            buf = buf[4:]
-            continue
-
         cw = Control.from_buffer(buf[:8])
 
-        while len(buf) < cw.size*4 + 10:
+        while len(buf) < cw.size*4 + 8:
             # extend buffer with next physical record
             try:
                 chunk = next(zebra)
@@ -98,7 +99,7 @@ def iter_logical_records(f):
         if cw.type in (2,3,4):
             # normal record
             pass
-        elif cw.type in (5,):
+        elif cw.type in (5,6):
             # padding record
             if cw.size >= 1:
                 buf = buf[8+(cw.size-1)*4:]
@@ -115,19 +116,18 @@ def iter_logical_records(f):
         pilot = Pilot.from_buffer(buf[8:48])
 
         size = (cw.size-10)*4
-        record = buf[48:48+size]
-        assert size == len(record)
+        rec = buf[48:48+size]
+        assert size == len(rec)
 
         skip_to = pilot.size_header + pilot.size_seg + pilot.size_rel + pilot.size_text
-        record = record[skip_to*4:]
+        rec = rec[skip_to*4:]
 
-        yield record
+        yield rec
         buf = buf[48+size:]
 
-@profile
-def iter_banks(record):
-    bytes = io.BytesIO(record)
-    while bytes.tell() < len(record):
+def iter_banks(rec):
+    bytes = io.BytesIO(rec)
+    while bytes.tell() < len(rec):
         ioc = IOControl.from_buffer_copy(bytes.read(4))
 
         bytes.seek((ioc.size-12)*4,1)
@@ -153,6 +153,6 @@ if __name__ == '__main__':
 
     with io.open(args.filename,'rb') as f:
         for i, bank in enumerate(parse(f)):
+            print(bank.name)
             if i % 10000 == 0:
                 print('%i' % i, file=sys.stderr)
-            #print(bank.name)
