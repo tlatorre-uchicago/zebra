@@ -44,8 +44,22 @@ class IOControl(BigEndianStructure):
     _fields_ = [('char', c_uint32, 16),
                 ('size', c_uint32, 16)]
 
-def zebraio(f):
-    """Yields physical record blocks from a Zebra file `f`."""
+def _iter_prec(f):
+    """
+    Yields physical record blocks from a Zebra file `f`.
+
+    If you get lost or the current block is corrupted,
+    you can tell the generator to skip to the next physical
+    record and ignore the bytes left over from the last by
+    sending True, i.e.:
+    
+        prec_iter = _iter_prec(f)
+        block = next(prec_iter)
+        block = next(prec_iter)
+        # get lost
+        block = prec_iter.send(True)
+        # back on track
+    """
     skip = False
     while f.read(1):
         f.seek(-1,1)
@@ -66,8 +80,9 @@ def zebraio(f):
         else:
             skip = yield physical_record
 
-def iter_logical_records(f):
-    zebra = zebraio(f)
+def _iter_lrec(f):
+    """Yields logical record blocks as bytearrays from a Zebra file `f`."""
+    prec_iter = _iter_prec(f)
 
     buf = bytearray()
     while True:
@@ -79,7 +94,7 @@ def iter_logical_records(f):
         if len(buf) < 8:
             # extend buffer with next physical record
             try:
-                chunk = next(zebra)
+                chunk = next(prec_iter)
             except StopIteration:
                 break
 
@@ -90,7 +105,7 @@ def iter_logical_records(f):
         while len(buf) < cw.size*4 + 8:
             # extend buffer with next physical record
             try:
-                chunk = next(zebra)
+                chunk = next(prec_iter)
             except StopIteration:
                 break
 
@@ -125,7 +140,8 @@ def iter_logical_records(f):
         yield rec
         buf = buf[48+size:]
 
-def iter_banks(rec):
+def _iter_banks(rec):
+    """Yields (bank, data) from a logical record."""
     bytes = io.BytesIO(rec)
     while bytes.tell() < len(rec):
         ioc = IOControl.from_buffer_copy(bytes.read(4))
@@ -137,11 +153,6 @@ def iter_banks(rec):
         assert len(data) == bank.data*4
         yield bank, data
 
-def parse(f):
-    for lr in iter_logical_records(f):
-        for bank, data in iter_banks(lr):
-            yield bank
-
 if __name__ == '__main__':
     import sys
     import argparse
@@ -152,7 +163,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     with io.open(args.filename,'rb') as f:
-        for i, bank in enumerate(parse(f)):
-            print(bank.name)
-            if i % 10000 == 0:
-                print('%i' % i, file=sys.stderr)
+        for rec in _iter_lrec(f):
+            for bank, data in _iter_banks(rec):
+                print(bank.name)
