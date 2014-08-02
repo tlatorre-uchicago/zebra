@@ -2,6 +2,10 @@ from __future__ import print_function
 from ctypes import c_uint32, c_float, c_char, BigEndianStructure
 import io
 
+class FTX(BigEndianStructure):
+    _fields_ = [('method',  c_uint32),
+                ('retcode', c_uint32)]
+
 class SteeringBlock(BigEndianStructure):
     _fields_ = [('stamp',                c_uint32*4),
                 ('emergency_stop_block', c_uint32, 1),
@@ -69,7 +73,6 @@ def _iter_prec(f):
         # size of steering block
         # see calculation on page 121 of ZEBRA guide
         size = (sb.size*(sb.fast_blocks + 1)-8)*4
-        print(size)
         physical_record = f.read(size)
         assert len(physical_record) == size
 
@@ -156,6 +159,7 @@ def _iter_banks(rec):
 if __name__ == '__main__':
     import sys
     import argparse
+    import re
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', '--verbose', help='increase verbosity', action='store_true')
@@ -165,4 +169,11 @@ if __name__ == '__main__':
     with io.open(args.filename,'rb') as f:
         for rec in _iter_lrec(f):
             for bank, data in _iter_banks(rec):
+                #if re.match('FT[A-Z]\s',bank.name):
+                #    ftx = FTX.from_buffer_copy(data)
+                #    print('ftx.retcode = ', ftx.retcode)
+                #    print('ftx.method  = ', ftx.method)
+                #    print(bank.name)
                 print(bank.name)
+                if 'PMT' in bank.name:
+                    print(bank.name)
